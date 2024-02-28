@@ -1,0 +1,21 @@
+# docker-compose for SFTP server
+version: '3.2'
+services:
+  sftp: # https://hub.docker.com/r/atmoz/sftp
+    image: atmoz/sftp
+    volumes:
+      - "C:/Upload:/home/foo/upload"
+    ports:
+      - '22:22'
+      # user:pass[:e]{:uid[:gid[:dir1[,dir2]...]]]
+    command: foo:pass:::upload
+    
+  activemq: # https://hub.docker.com/r/webcenter/activemq
+    image: 'webcenter/activemq:5.14.3'
+    environment:
+      ACTIVEMQ_ADMIN_LOGIN:    'mqAdmin'
+      ACTIVEMQ_ADMIN_PASSWORD: 'mqAdmin123'
+    ports:
+      - '61613:61613'
+      - '61616:61616'
+      - '8161:8161'

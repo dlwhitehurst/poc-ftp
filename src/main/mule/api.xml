@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:os="http://www.mulesoft.org/schema/mule/os" xmlns:vm="http://www.mulesoft.org/schema/mule/vm" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:sftp="http://www.mulesoft.org/schema/mule/sftp" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd 
+http://www.mulesoft.org/schema/mule/sftp http://www.mulesoft.org/schema/mule/sftp/current/mule-sftp.xsd
+http://www.mulesoft.org/schema/mule/vm http://www.mulesoft.org/schema/mule/vm/current/mule-vm.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd">
+    <http:listener-config name="api-httpListenerConfig">
+        <http:listener-connection host="0.0.0.0" port="8081" />
+    </http:listener-config>
+    <apikit:config name="api-config" api="api.raml" outboundHeadersMapName="outboundHeaders" httpStatusVarName="httpStatus" />
+	<configuration-properties file="poc-sftp-dev.properties"/>
+	<configuration correlationIdGeneratorExpression="#[uuid() replace /-/ with ('.')]"/>	
+    <sftp:config name="SFTP_Config" doc:name="SFTP Config" doc:id="91b88ed0-926f-4a73-9489-f0d011867f70" >
+		<sftp:connection 
+			host="localhost" 
+			username="foo" 
+			password="pass" knownHostsFile="C:\Users\jwlyn\.ssh\known_hosts" passphrase="abc123" workingDir="upload" port="2222" identityFile="C:\Users\jwlyn\AnypointStudio\studio-workspace\poc-sftp\src\main\resources\private.pem"/>
+	</sftp:config>
+	<vm:config name="VM_Config" doc:name="VM Config" doc:id="f003be1e-d335-43c0-ab57-a67a8ae55cfa" >
+		<vm:queues >
+			<vm:queue queueName="process-out" queueType="PERSISTENT" />
+		</vm:queues>
+	</vm:config>
+	<flow name="api-main">
+        <http:listener config-ref="api-httpListenerConfig" path="/api/v1/*">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:headers>#[vars.outboundHeaders default {}]</http:headers>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+                <http:headers>#[vars.outboundHeaders default {}]</http:headers>
+            </http:error-response>
+        </http:listener>
+        <apikit:router config-ref="api-config" />
+        <error-handler>
+            <on-error-propagate type="APIKIT:BAD_REQUEST">
+                <ee:transform>
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{message: "Bad request"}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">400</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate type="APIKIT:NOT_FOUND">
+                <ee:transform>
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{message: "Resource not found"}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">404</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate type="APIKIT:METHOD_NOT_ALLOWED">
+                <ee:transform>
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{message: "Method not allowed"}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">405</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate type="APIKIT:NOT_ACCEPTABLE">
+                <ee:transform>
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{message: "Not acceptable"}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">406</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate type="APIKIT:UNSUPPORTED_MEDIA_TYPE">
+                <ee:transform>
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{message: "Unsupported media type"}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">415</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate type="APIKIT:NOT_IMPLEMENTED">
+                <ee:transform>
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{message: "Not Implemented"}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">501</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+        </error-handler>
+    </flow>
+    <flow name="api-console">
+        <http:listener config-ref="api-httpListenerConfig" path="/console/*">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:headers>#[vars.outboundHeaders default {}]</http:headers>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+                <http:headers>#[vars.outboundHeaders default {}]</http:headers>
+            </http:error-response>
+        </http:listener>
+        <apikit:console config-ref="api-config" />
+        <error-handler>
+            <on-error-propagate type="APIKIT:NOT_FOUND">
+                <ee:transform>
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{message: "Resource not found"}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">404</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+        </error-handler>
+    </flow>
+    <flow name="get:\health:api-config">
+        <ee:transform>
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  message: "Seems healthy ..."
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+    </flow>
+    <flow name="post:\upload:multipart\form-data:api-config">
+		<set-variable variableName="fileContent" value="#[payload.parts.file.content]" doc:name="File Content"/>
+		<ee:transform doc:name="Reading Parts" doc:id="467e09a8-e386-41d3-aa4f-fde30483cfe5" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java 
+--- 
+payload.parts]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+        <set-variable value='#[payload.file.headers."Content-Disposition".filename default ""]' doc:name="File Name" doc:id="46f440ed-fab1-492b-8a54-59d52219a839" variableName="fileName" />
+		<os:store doc:name="Store Filename" doc:id="71d8e567-0f5b-4b47-b2f2-b10781f50b39" key="vars.correlationId">
+			<os:value ><![CDATA[#[vars.fileName]]]></os:value>
+		</os:store>
+		<set-payload value="#[vars.fileContent]" doc:name="Set Payload" doc:id="8fa58dc6-4289-4778-8c7c-6253828d9259" />
+		<vm:publish queueName="process-out" doc:name="Process Out" doc:id="937877ca-8bf8-4f02-acda-9cfc64b55140" config-ref="VM_Config"/>
+		<ee:transform doc:name="Transform Message" doc:id="c15a0b8f-c500-4ef1-966d-86eadb5068a7" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"message": "Your upload was accepted for processing, filename: " ++ vars.fileName
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+    </flow>
+	<flow name="processFlow" doc:id="03677a15-0bce-4dff-87a6-b862ad261109" >
+		<vm:listener queueName="process-out" doc:name="Listener" doc:id="8795548e-6044-4286-9a43-6198b323b89b" config-ref="VM_Config"/>
+		<set-variable value="#[payload]" doc:name="tmpPayload" doc:id="ba6c888d-4e6b-40ae-9e11-3a8951217929" variableName="tmpPayload"/>
+		<os:retrieve doc:name="fileName " doc:id="4a2b220e-1d6c-4520-8b3e-c75bb2185f75" key="vars.correlationId" />
+		<set-variable value="#[payload]" doc:name="fileName" doc:id="77f12ec3-a5d1-4afc-947d-730fed3cac6b" variableName="fileName"/>
+		<set-payload value="#[vars.tmpPayload]" doc:name="Set Payload" doc:id="a27737b5-7364-43fa-9080-fb6ac9ac497b" />
+		<sftp:write doc:name="Write" doc:id="0cfd4a7a-8261-49bb-8295-fee74498f14d" config-ref="SFTP_Config" path="#[vars.fileName]" />
+		<logger level="INFO" doc:name="Success" doc:id="aae53812-3bf1-4490-b029-238ef130a796" message='#["SUCCESS: Filename: " ++ vars.fileName as String ++ " was received by SFTP server."]'/>
+		<os:remove doc:name="fileName" doc:id="4bb3e706-47c1-4299-900f-fddb99b4d9a9" key="vars.correlationId"/>
+
+	</flow>
+</mule>

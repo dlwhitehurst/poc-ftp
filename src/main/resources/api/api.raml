@@ -1,0 +1,31 @@
+#%RAML 1.0
+
+title:       Reliable SFTP Prototype
+description: REST API for Upload and subsequent SFTP, reliably
+baseUri:     http://localhost:8081/api/v1
+
+mediaType: application/json
+version: v1
+
+/health:
+  description: Dead simple health check, no external services
+  get:
+    responses:
+      200:
+        body:
+          application/json:
+            example: !include examples/success-health.json
+
+/upload:
+  post:
+    description: Accept file via POST and send reliably to an SFTP drop
+    body:
+      multipart/form-data:
+        properties:
+          file:
+            type: file
+    responses:
+      202:
+        body:
+          application/json:
+            example: !include examples/upload.json
