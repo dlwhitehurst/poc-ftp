@@ -18,8 +18,10 @@ http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/cu
 	<vm:config name="VM_Config" doc:name="VM Config" doc:id="f003be1e-d335-43c0-ab57-a67a8ae55cfa" >
 		<vm:queues >
 			<vm:queue queueName="process-out" queueType="PERSISTENT" />
+			<vm:queue queueName="retry-out" queueType="PERSISTENT" />
 		</vm:queues>
 	</vm:config>
+	<os:object-store name="Object_store" doc:name="Object store" doc:id="3424d47d-32f0-46f5-a150-1d573f08103d" maxEntries="100" />
 	<flow name="api-main">
         <http:listener config-ref="api-httpListenerConfig" path="/api/v1/*">
             <http:response statusCode="#[vars.httpStatus default 200]">
@@ -162,11 +164,11 @@ payload.parts]]></ee:set-payload>
 			</ee:message>
 		</ee:transform>
         <set-variable value='#[payload.file.headers."Content-Disposition".filename default ""]' doc:name="File Name" doc:id="46f440ed-fab1-492b-8a54-59d52219a839" variableName="fileName" />
-		<os:store doc:name="Store Filename" doc:id="71d8e567-0f5b-4b47-b2f2-b10781f50b39" key="vars.correlationId">
+		<os:store doc:name="Store Filename" doc:id="71d8e567-0f5b-4b47-b2f2-b10781f50b39" key="#[correlationId]" objectStore="Object_store">
 			<os:value ><![CDATA[#[vars.fileName]]]></os:value>
 		</os:store>
 		<set-payload value="#[vars.fileContent]" doc:name="Set Payload" doc:id="8fa58dc6-4289-4778-8c7c-6253828d9259" />
-		<vm:publish queueName="process-out" doc:name="Process Out" doc:id="937877ca-8bf8-4f02-acda-9cfc64b55140" config-ref="VM_Config"/>
+		<vm:publish queueName="process-out" doc:name="Process Out" doc:id="937877ca-8bf8-4f02-acda-9cfc64b55140" config-ref="VM_Config" sendCorrelationId="ALWAYS"/>
 		<ee:transform doc:name="Transform Message" doc:id="c15a0b8f-c500-4ef1-966d-86eadb5068a7" >
 			<ee:message >
 				<ee:set-payload ><![CDATA[%dw 2.0
@@ -181,12 +183,38 @@ output application/json
 	<flow name="processFlow" doc:id="03677a15-0bce-4dff-87a6-b862ad261109" >
 		<vm:listener queueName="process-out" doc:name="Listener" doc:id="8795548e-6044-4286-9a43-6198b323b89b" config-ref="VM_Config"/>
 		<set-variable value="#[payload]" doc:name="tmpPayload" doc:id="ba6c888d-4e6b-40ae-9e11-3a8951217929" variableName="tmpPayload"/>
-		<os:retrieve doc:name="fileName " doc:id="4a2b220e-1d6c-4520-8b3e-c75bb2185f75" key="vars.correlationId" />
+		<os:retrieve doc:name="fileName " doc:id="4a2b220e-1d6c-4520-8b3e-c75bb2185f75" key="#[correlationId]" objectStore="Object_store"/>
 		<set-variable value="#[payload]" doc:name="fileName" doc:id="77f12ec3-a5d1-4afc-947d-730fed3cac6b" variableName="fileName"/>
 		<set-payload value="#[vars.tmpPayload]" doc:name="Set Payload" doc:id="a27737b5-7364-43fa-9080-fb6ac9ac497b" />
 		<sftp:write doc:name="Write" doc:id="0cfd4a7a-8261-49bb-8295-fee74498f14d" config-ref="SFTP_Config" path="#[vars.fileName]" />
 		<logger level="INFO" doc:name="Success" doc:id="aae53812-3bf1-4490-b029-238ef130a796" message='#["SUCCESS: Filename: " ++ vars.fileName as String ++ " was received by SFTP server."]'/>
 		<os:remove doc:name="fileName" doc:id="4bb3e706-47c1-4299-900f-fddb99b4d9a9" key="vars.correlationId"/>
+		<error-handler>
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="17f2087e-cccc-4943-8b33-670e2a7b8adf" >
+				<vm:publish doc:name="Publish" doc:id="db7ddfa2-0bad-4bb2-b70a-b55b65d2c073" config-ref="VM_Config" queueName="retry-out" sendCorrelationId="ALWAYS"/>
+			</on-error-continue>
+		</error-handler>
 
+	</flow>
+	<flow name="retryFlow" doc:id="7872ee8c-9a5d-44bf-a139-c056bf146a7c" >
+		<vm:listener doc:name="Listener" doc:id="5c9acf68-65fb-446b-bfed-7ccd06cf1667" config-ref="VM_Config" queueName="retry-out"/>
+		<set-variable value="#[payload]" doc:name="tmpPayload" doc:id="e8eaf5d4-0651-4332-a17c-e04e592d7e3f" variableName="tmpPayload"/>
+		<os:contains doc:name="Contains" doc:id="cefc2d18-ac1e-418a-b9d7-50bd2668604d" key="#['_retry' ++ (vars.correlationId default &quot;&quot;)]"/>
+		<choice doc:name="Choice" doc:id="ac5d9a50-12e9-4400-b41e-f953a7ed6c86" >
+			<when expression="#[payload == 'true']">
+				<os:retrieve doc:name="Retrieve" doc:id="e08d427c-808f-4362-a887-fca27e955549" key="#['_retry' ++ (vars.correlationId default &quot;&quot;)]"/>
+				<choice doc:name="Choice" doc:id="6b650903-02b4-4f95-acbc-f69c4f3783db" >
+					<when expression="#[payload  &lt; 5]">
+						<os:store doc:name="Store" doc:id="6ade9775-d7df-48ae-8209-94e8dda2d0ea" key="'_retry' ++ (vars.correlationId default &quot;&quot;)"/>
+					</when>
+				</choice>
+			</when>
+			<otherwise>
+				<os:store doc:name="Store" doc:id="fff0d84e-54ac-4424-8c08-fd5e7a56b60d" key="'_retry' ++ (vars.correlationId default &quot;&quot;)">
+					<os:value ><![CDATA[#[1]]]></os:value>
+				</os:store>
+			</otherwise>
+		</choice>
+		<vm:publish doc:name="Publish" doc:id="28072904-063b-4de4-a9d6-0bd3f179ecda" config-ref="VM_Config" queueName="process-out"/>
 	</flow>
 </mule>

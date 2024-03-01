@@ -4,9 +4,10 @@ services:
   sftp: # https://hub.docker.com/r/atmoz/sftp
     image: atmoz/sftp
     volumes:
-      - "C:/Upload:/home/foo/upload"
+      - /home/david/.ssh/sftp_org_rsa.pub:/home/foo/.ssh/keys/id_rsa.pub:ro
+      - /home/david/upload:/home/foo/upload"
     ports:
-      - '22:22'
+      - '2222:22'
       # user:pass[:e]{:uid[:gid[:dir1[,dir2]...]]]
     command: foo:pass:::upload
     
